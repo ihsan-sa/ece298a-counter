@@ -10,6 +10,24 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
 > synchronous load and tri-state outputs. Show that the Verilog code works (test it!). Build
 > using github actions in Tiny Tapeout for the GF-180nm technology."*
 
+## Write-up
+
+**[Read the write-up as a PDF (7 pages)](docs/counter_writeup.pdf)**, or page through it here:
+
+[![Page 1 of the write-up](writeup/page-1.png)](docs/counter_writeup.pdf)
+
+<details>
+<summary><b>Pages 2 to 7</b> (click to expand)</summary>
+
+![Page 2: how it behaves](writeup/page-2.png)
+![Page 3: the pin mapping](writeup/page-3.png)
+![Page 4: how it was verified](writeup/page-4.png)
+![Page 5: the seven tests](writeup/page-5.png)
+![Page 6: the build](writeup/page-6.png)
+![Page 7: sources](writeup/page-7.png)
+
+</details>
+
 ## Status
 
 **All three Tiny Tapeout workflows pass:** `gds` (hardening, precheck, gate-level test),
@@ -36,8 +54,7 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
    run went green. *Tip:* don't re-run a failed `gds` run — it uploads a second `github-pages`
    artifact and the deploy refuses. Start a new run from Actions → gds → Run workflow.
 
-**Write-up (PDF, 7 pages): [docs/counter_writeup.pdf](docs/counter_writeup.pdf).** Full design notes
-and a by-hand test sequence: [docs/info.md](docs/info.md).
+Full design notes and a by-hand test sequence: [docs/info.md](docs/info.md).
 
 ## The design at a glance
 
