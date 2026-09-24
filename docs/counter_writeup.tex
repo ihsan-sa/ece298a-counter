@@ -1,0 +1,214 @@
+% ECE 298A project 1 write-up: the 8-bit programmable counter.
+% Build: <pdf-material-builder>/scripts/build.sh docs/counter_writeup.tex
+% Figures are drawn with the house TikZ kit (no SVG converter on the build box).
+\documentclass[11pt]{article}
+\usepackage{housestyle}
+\usepackage{amssymb}
+\usepackage{tabularx}
+
+\hsslug{ECE 298A \textperiodcentered\ Counter write-up}
+\fancyfoot[L]{\hsrunlabel{\textcopyright{} 2026 Ihsan Salari. All rights reserved.}}
+\renewcommand{\sectionmark}[1]{\markboth{#1}{}}
+\hssection{\leftmark}
+\titleformat{\subsection}{\hssubheadfont\fontsize{13pt}{17pt}\selectfont\color{ink}}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{16pt}{4pt}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+
+\hstitleblock{ECE 298A \textperiodcentered\ Project 1 \textperiodcentered\ September 2026}%
+{An 8-bit programmable counter on Tiny Tapeout GF180}%
+{What the design is, why its pins are laid out the way they are, how it was tested, and how it was built into a chip layout.}
+
+The assignment asked for an 8-bit programmable binary counter with an asynchronous reset, a
+synchronous load and tri-state outputs, tested and built for GF180. The result is one Tiny
+Tapeout tile whose count leaves on a bus that can go high impedance and on pins that are always
+driven. The load data comes in on that same bus, and that one decision shapes the rest.
+
+\begin{hsfigure}{Figure 1 / the counter as blocks}%
+{Slate boxes are pins on the tile edge; sage boxes are logic inside it. The top arrow is the load data.}
+\hsnodesize{84pt}{52pt}
+\begin{tikzpicture}[node distance=14pt]
+  \node[hsnode] (ctl) {\hsnodetext{Input pins}{Controls}{LOAD, ENABLE, OE on ui[2:0]; clk; rst\_n}};
+  \node[hswork,right=of ctl] (reg) {\hsnodetext{State}{8-bit register}{reset, then load, then count, then hold}};
+  \node[hswork,right=of reg] (buf) {\hsnodetext{Driver}{Tri-state buffer}{uio\_oe is 0xFF when OE is high, 0x00 when low}};
+  \node[hsnode,right=of buf] (bus) {\hsnodetext{Bidirectional pins}{uio[7:0] bus}{Q out when OE is high, D in when low}};
+  \node[hsnode,below=16pt of reg] (uo) {\hsnodetext{Output pins}{uo[7:0] mirror}{a copy of Q, always driven}};
+  \draw[hsarrow] (ctl) -- (reg);
+  \draw[hsarrow] (reg) -- (buf);
+  \draw[hsarrow] (buf) -- (bus);
+  \draw[hsarrow] (reg) -- (uo);
+  \draw[hsarrow] (bus.north) -- ++(0,12pt) -| node[hsann,pos=0.25,above]{D[7:0], load data, sampled only when OE = 0} (reg.north);
+\end{tikzpicture}
+\end{hsfigure}
+
+\hsprovenance{Figure 1 drawn from src/project.v at commit e9a4bfb, track/counter, 23 September 2026.}
+\newpage
+
+\section{How it behaves}\label{sec:behaviour}
+\hslead{Four behaviours in a fixed priority. Only reset ignores the clock.}
+
+The whole counter is the single \texttt{always} block in Listing 1. Its sensitivity list names
+two events, the rising edge of \texttt{clk} and the falling edge of \texttt{rst\_n}, and that
+second event is what makes the reset asynchronous: the block runs the instant \texttt{rst\_n}
+falls, without waiting for a clock, and clears the count. Every other branch can only be reached
+on a clock edge, which is what makes the load and the count synchronous.
+
+\hslisting{Listing 1 / the register, from src/project.v}
+\begin{Verbatim}[bgcolor=codefill]
+always @(posedge clk or negedge rst_n) begin
+  if (!rst_n) begin
+    count <= 8'h00;          // asynchronous clear
+  end else if (load) begin
+    count <= load_data;      // synchronous load, beats counting
+  end else if (enable) begin
+    count <= count + 8'd1;   // count up, wraps 255 -> 0
+  end
+  // else: hold. count keeps its value.
+end
+\end{Verbatim}
+
+The order of the \texttt{if} chain is the priority, and it settles every combination of inputs:
+
+\begin{enumerate}
+\item \textit{Reset.} With \texttt{rst\_n} low the count is \texttt{0x00}, whatever else is
+  happening, and it gets there between clock edges.
+\item \textit{Load.} With \texttt{LOAD} high, the next rising edge copies the eight bits on the
+  bus into the register. Load is checked before enable, so raising both loads the value and
+  does not add one to it.
+\item \textit{Count.} With \texttt{ENABLE} high and \texttt{LOAD} low, the next rising edge adds
+  one. The sum is kept to eight bits, so \texttt{0xFF} plus one is \texttt{0x00} and the carry
+  is dropped.
+\item \textit{Hold.} With neither high, nothing is assigned and the register keeps its value.
+\end{enumerate}
+
+\hsprovenance{Listing 1 copied from src/project.v, lines 60 to 69, at commit e9a4bfb.}
+\newpage
+
+\section{The pin mapping}\label{sec:pins}
+\hslead{The tri-state output fills the only pins that can tri-state, so the load data has to share them.}
+
+A Tiny Tapeout tile has eight dedicated inputs (\texttt{ui}), eight dedicated outputs
+(\texttt{uo}) and eight bidirectional pins (\texttt{uio}). Only the bidirectional pins can be
+released to high impedance, through an enable byte, \texttt{uio\_oe}; the dedicated outputs are
+always driven. A real tri-state output therefore has to live on \texttt{uio}, and an 8-bit one
+takes all eight of those pins.
+
+That leaves no pins for a separate 8-bit data input. The answer is the one the 74-series bus
+counters use: one bus that is the output while the counter drives it and the load input while
+it does not. \texttt{OE} chooses which, by setting all eight bits of \texttt{uio\_oe} at once.
+
+\begin{hsblock}
+\hslabel{Table 1 / every pin the design uses}\par\vspace{4pt}
+\begin{tabularx}{\linewidth}{@{}L{62pt}L{58pt}Y@{}}
+\hstoprule
+\hshead{Pin} & \hshead{Direction} & \hshead{Meaning} \\
+\hstoprule
+\texttt{uio[7:0]} & both & \texttt{OE} high: \texttt{uio\_oe = 0xFF} and the bus drives the count. \texttt{OE} low: \texttt{uio\_oe = 0x00}, the bus is high impedance and is read as the load data. \\ \hline
+\texttt{ui[0]} & input & \texttt{LOAD}, synchronous parallel load, active high \\ \hline
+\texttt{ui[1]} & input & \texttt{ENABLE}, count enable, active high \\ \hline
+\texttt{ui[2]} & input & \texttt{OE}, output enable for the bus, active high \\ \hline
+\texttt{ui[7:3]} & input & unused; tie low \\ \hline
+\texttt{uo[7:0]} & output & a copy of the count, always driven \\ \hline
+\texttt{clk} & input & the clock \\ \hline
+\texttt{rst\_n} & input & asynchronous reset, active low \\
+\hstoprule
+\end{tabularx}
+\end{hsblock}
+
+\begin{hscallout}{Can you load while the bus is driving?}
+No, and this is the price of sharing the bus. While \texttt{OE} is high the tile is driving
+\texttt{uio}, nothing outside can put data on it, and a load would capture the counter's own
+output. To load, drop \texttt{OE}, put the value on the bus, then raise \texttt{LOAD} for one
+clock edge. The count stays visible on \texttt{uo} throughout.
+\end{hscallout}
+\newpage
+
+\section{How it was verified}\label{sec:verify}
+\hslead{Seven CocoTB tests, a check that they catch broken designs, and the Tiny Tapeout build.}
+
+\begin{hsstatrow}[3]
+\hsstat{7 / 7}{CocoTB tests passing in CI}
+\hsstat{4 / 4}{deliberately broken counters caught}
+\hsstat{3 / 3}{Tiny Tapeout workflows passing}
+\end{hsstatrow}
+
+A test that passes against the right design proves little until it is also seen to fail against
+a wrong one. So the suite was run against four broken counters, each with one requirement
+removed: a synchronous reset in place of the asynchronous one, counting checked before loading,
+\texttt{uio\_oe} stuck at \texttt{0xFF}, and the enable ignored. Every one failed at least one
+test.
+
+\hsclaim{The tests pass on the real counter and fail on each of four broken ones.}{What the verification establishes}
+
+\begin{hscallout}{What this does not show}
+The broken-counter check was run in RTL simulation only, and it covered four of the seven
+behaviours by mutation; the rest rely on the tests themselves. Gate-level simulation of the
+synthesized netlist ran in CI and passed, but nothing here has been measured on silicon.
+\end{hscallout}
+
+\hsprovenance{Tests: CI run 35284260559, results.xml, 7 testcases and 0 failures. Mutations: development journal, 17 September 2026. Workflows: runs 35284260581, 35284260559 and 35286678743.}
+\newpage
+
+\section{The seven tests}\label{sec:tests}
+\hslead{One requirement per test, so a failure names the requirement that broke.}
+
+The testbench in \texttt{test/} drives the tile's pins directly, the way the demo board would,
+and reads the count back from \texttt{uo}. Each test checks one requirement from the assignment and nothing else.
+
+\begin{hsblock}
+\hslabel{Table 2 / what each test checks}\par\vspace{4pt}
+\begin{tabularx}{\linewidth}{@{}L{172pt}Y@{}}
+\hstoprule
+\hshead{Test} & \hshead{Passes only if} \\
+\hstoprule
+\texttt{test\_async\_reset} & \texttt{rst\_n} clears the count between clock edges \\ \hline
+\texttt{test\_sync\_load} & a load takes effect on the rising edge and not before it \\ \hline
+\texttt{test\_count\_up\_from\_loaded\_value} & after a load the count rises by one per edge \\ \hline
+\texttt{test\_count\_enable\_holds} & with \texttt{ENABLE} low the count is unchanged over many edges \\ \hline
+\texttt{test\_wraparound} & \texttt{0xFF} plus one gives \texttt{0x00} \\ \hline
+\texttt{test\_tristate\_bus} & \texttt{OE} switches \texttt{uio\_oe} between \texttt{0xFF} and \texttt{0x00}, and \texttt{uo} tracks the count either way \\ \hline
+\texttt{test\_load\_beats\_count} & with \texttt{LOAD} and \texttt{ENABLE} both high, the loaded value wins with no added one \\
+\hstoprule
+\end{tabularx}
+\end{hsblock}
+
+\hsprovenance{Test names and checks from test/test.py at commit e9a4bfb; all seven passed in CI run 35284260559.}
+\newpage
+
+\section{The build}\label{sec:build}
+\hslead{The chip built on the first try. The first run still failed, on a repository setting.}
+
+Pushing the design runs three GitHub workflows. \texttt{test} runs the CocoTB suite;
+\texttt{docs} checks the datasheet in \texttt{docs/info.md}; \texttt{gds} synthesizes the design,
+places and routes it for GF180 with LibreLane, runs the Tiny Tapeout design checks, repeats the
+tests against the gate-level netlist, and publishes a 3D view of the layout to GitHub Pages.
+
+On the first push, \texttt{test} and \texttt{docs} passed, and inside \texttt{gds} the layout,
+the checks and the gate-level test all passed too. Only the last step failed: the Pages deploy
+returned \textit{404, ensure GitHub Pages has been enabled}, because the repository's Pages
+source had not yet been set. Setting it to \textit{GitHub Actions} fixed that, and a fresh
+\texttt{gds} run then passed every job, including the deploy. The layout viewer is live at
+\hsurl{https://ihsan-sa.github.io/ece298a-counter/}.
+
+One step on the way is worth knowing for next time. Re-running the failed \texttt{gds} run did
+not work: the re-run uploads a second copy of the Pages artifact into the same run, and the
+deploy refuses when it finds two with the same name. A new run, started from the Actions tab,
+has only one.
+
+\subsection{To rebuild it}
+\begin{enumerate}
+\item Push to the repository, or open Actions, choose \texttt{gds}, and use \textit{Run workflow}.
+\item For a run that failed, start a new one rather than re-running it.
+\item To run the tests on your own machine, run \texttt{make -B} in \texttt{test/}, and
+  \texttt{make -B GATES=yes} once \texttt{gds} has produced a netlist.
+\end{enumerate}
+
+\hssourcespage
+\begin{hssources}
+\item Tiny Tapeout, \emph{GF180 Verilog project template}. \hsurl{https://github.com/TinyTapeout/ttgf-verilog-template}
+\item This project's repository, \emph{ihsan-sa/ece298a-counter}, branch track/counter. \hsurl{https://github.com/ihsan-sa/ece298a-counter}
+\item Tiny Tapeout, \emph{FAQ: my GitHub action is failing on the Pages part}. \hsurl{https://tinytapeout.com/faq/}
+\item The layout in the Tiny Tapeout 3D viewer. \hsurl{https://ihsan-sa.github.io/ece298a-counter/}
+\end{hssources}
+\end{document}
