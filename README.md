@@ -36,7 +36,8 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
    run went green. *Tip:* don't re-run a failed `gds` run — it uploads a second `github-pages`
    artifact and the deploy refuses. Start a new run from Actions → gds → Run workflow.
 
-Full design notes and a by-hand test sequence: [docs/info.md](docs/info.md).
+**Write-up (PDF, 7 pages): [docs/counter_writeup.pdf](docs/counter_writeup.pdf).** Full design notes
+and a by-hand test sequence: [docs/info.md](docs/info.md).
 
 ## The design at a glance
 
