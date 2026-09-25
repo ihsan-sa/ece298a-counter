@@ -22,7 +22,7 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
 ![Page 2: how it behaves](writeup/page-2.png)
 ![Page 3: the pin mapping](writeup/page-3.png)
 ![Page 4: how it was verified](writeup/page-4.png)
-![Page 5: the seven tests](writeup/page-5.png)
+![Page 5: the eight tests](writeup/page-5.png)
 ![Page 6: the build](writeup/page-6.png)
 ![Page 7: sources](writeup/page-7.png)
 

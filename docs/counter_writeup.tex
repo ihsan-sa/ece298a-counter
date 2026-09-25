@@ -42,7 +42,7 @@ driven. The load data comes in on that same bus, and that one decision shapes th
 \end{tikzpicture}
 \end{hsfigure}
 
-\hsprovenance{Figure 1 drawn from src/project.v at commit e9a4bfb, track/counter, 23 September 2026.}
+\hsprovenance{Figure 1 drawn from src/project.v at commit fd4d929, track/counter, 23 September 2026.}
 \newpage
 
 \section{How it behaves}\label{sec:behaviour}
@@ -59,7 +59,7 @@ on a clock edge, which is what makes the load and the count synchronous.
 always @(posedge clk or negedge rst_n) begin
   if (!rst_n) begin
     count <= 8'h00;          // asynchronous clear
-  end else if (load) begin
+  end else if (do_load) begin  // do_load = load & ~oe
     count <= load_data;      // synchronous load, beats counting
   end else if (enable) begin
     count <= count + 8'd1;   // count up, wraps 255 -> 0
@@ -73,16 +73,16 @@ The order of the \texttt{if} chain is the priority, and it settles every combina
 \begin{enumerate}
 \item \textit{Reset.} With \texttt{rst\_n} low the count is \texttt{0x00}, whatever else is
   happening, and it gets there between clock edges.
-\item \textit{Load.} With \texttt{LOAD} high, the next rising edge copies the eight bits on the
-  bus into the register. Load is checked before enable, so raising both loads the value and
+\item \textit{Load.} With \texttt{LOAD} high and \texttt{OE} low, the next rising edge copies the
+  eight bits on the bus into the register. Load is checked before enable, so raising both loads the value and
   does not add one to it.
-\item \textit{Count.} With \texttt{ENABLE} high and \texttt{LOAD} low, the next rising edge adds
+\item \textit{Count.} With \texttt{ENABLE} high and no load taking place, the next rising edge adds
   one. The sum is kept to eight bits, so \texttt{0xFF} plus one is \texttt{0x00} and the carry
   is dropped.
 \item \textit{Hold.} With neither high, nothing is assigned and the register keeps its value.
 \end{enumerate}
 
-\hsprovenance{Listing 1 copied from src/project.v, lines 60 to 69, at commit e9a4bfb.}
+\hsprovenance{Listing 1 copied from src/project.v, lines 65 to 74, at commit fd4d929; the do\_load comment is added.}
 \newpage
 
 \section{The pin mapping}\label{sec:pins}
@@ -117,18 +117,19 @@ it does not. \texttt{OE} chooses which, by setting all eight bits of \texttt{uio
 \end{hsblock}
 
 \begin{hscallout}{Can you load while the bus is driving?}
-No, and this is the price of sharing the bus. While \texttt{OE} is high the tile is driving
-\texttt{uio}, nothing outside can put data on it, and a load would capture the counter's own
-output. To load, drop \texttt{OE}, put the value on the bus, then raise \texttt{LOAD} for one
-clock edge. The count stays visible on \texttt{uo} throughout.
+No, and this is the price of sharing the bus. While \texttt{OE} is high the tile drives
+\texttt{uio}, and the GF180 pad switches its input side off (its datasheet lists input and output
+enabled together as disallowed), so \texttt{uio\_in} has no defined value. The design therefore
+ignores \texttt{LOAD} while \texttt{OE} is high. To load, drop \texttt{OE}, put the value on the
+bus, then raise \texttt{LOAD} for one clock edge.
 \end{hscallout}
 \newpage
 
 \section{How it was verified}\label{sec:verify}
-\hslead{Seven CocoTB tests, a check that they catch broken designs, and the Tiny Tapeout build.}
+\hslead{Eight CocoTB tests, a check that they catch broken designs, and the Tiny Tapeout build.}
 
 \begin{hsstatrow}[3]
-\hsstat{7 / 7}{CocoTB tests passing in CI}
+\hsstat{8 / 8}{CocoTB tests passing in CI}
 \hsstat{4 / 4}{deliberately broken counters caught}
 \hsstat{3 / 3}{Tiny Tapeout workflows passing}
 \end{hsstatrow}
@@ -142,15 +143,15 @@ test.
 \hsclaim{The tests pass on the real counter and fail on each of four broken ones.}{What the verification establishes}
 
 \begin{hscallout}{What this does not show}
-The broken-counter check was run in RTL simulation only, and it covered four of the seven
+The broken-counter check was run in RTL simulation only, and it covered four of the eight
 behaviours by mutation; the rest rely on the tests themselves. Gate-level simulation of the
 synthesized netlist ran in CI and passed, but nothing here has been measured on silicon.
 \end{hscallout}
 
-\hsprovenance{Tests: CI run 35284260559, results.xml, 7 testcases and 0 failures. Mutations: development journal, 17 September 2026. Workflows: runs 35284260581, 35284260559 and 35286678743.}
+\hsprovenance{Tests: CI run 36108189405 on fd4d929, results.xml, 8 testcases and 0 failures. Mutations: development journal, 17 September 2026. Workflows: runs 36108189395, 36108189405 and 36108189581, 25 September 2026.}
 \newpage
 
-\section{The seven tests}\label{sec:tests}
+\section{The eight tests}\label{sec:tests}
 \hslead{One requirement per test, so a failure names the requirement that broke.}
 
 The testbench in \texttt{test/} drives the tile's pins directly, the way the demo board would,
@@ -168,12 +169,13 @@ and reads the count back from \texttt{uo}. Each test checks one requirement from
 \texttt{test\_count\_enable\_holds} & with \texttt{ENABLE} low the count is unchanged over many edges \\ \hline
 \texttt{test\_wraparound} & \texttt{0xFF} plus one gives \texttt{0x00} \\ \hline
 \texttt{test\_tristate\_bus} & \texttt{OE} switches \texttt{uio\_oe} between \texttt{0xFF} and \texttt{0x00}, and \texttt{uo} tracks the count either way \\ \hline
-\texttt{test\_load\_beats\_count} & with \texttt{LOAD} and \texttt{ENABLE} both high, the loaded value wins with no added one \\
+\texttt{test\_load\_beats\_count} & with \texttt{LOAD} and \texttt{ENABLE} both high, the loaded value wins with no added one \\ \hline
+\texttt{test\_load\_ignored\_while\_driving} & with \texttt{OE} high, \texttt{LOAD} leaves the count alone, and with \texttt{ENABLE} also high it keeps counting \\
 \hstoprule
 \end{tabularx}
 \end{hsblock}
 
-\hsprovenance{Test names and checks from test/test.py at commit e9a4bfb; all seven passed in CI run 35284260559.}
+\hsprovenance{Test names and checks from test/test.py at commit fd4d929; all eight passed in CI run 36108189405.}
 \newpage
 
 \section{The build}\label{sec:build}
