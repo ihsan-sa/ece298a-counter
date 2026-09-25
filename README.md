@@ -10,6 +10,24 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
 > synchronous load and tri-state outputs. Show that the Verilog code works (test it!). Build
 > using github actions in Tiny Tapeout for the GF-180nm technology."*
 
+## Write-up
+
+**[Read the write-up as a PDF (7 pages)](docs/counter_writeup.pdf)**, or page through it here:
+
+[![Page 1 of the write-up](writeup/page-1.png)](docs/counter_writeup.pdf)
+
+<details>
+<summary><b>Pages 2 to 7</b> (click to expand)</summary>
+
+![Page 2: how it behaves](writeup/page-2.png)
+![Page 3: the pin mapping](writeup/page-3.png)
+![Page 4: how it was verified](writeup/page-4.png)
+![Page 5: the eight tests](writeup/page-5.png)
+![Page 6: the build](writeup/page-6.png)
+![Page 7: sources](writeup/page-7.png)
+
+</details>
+
 ## Status
 
 **All three Tiny Tapeout workflows pass:** `gds` (hardening, precheck, gate-level test),
@@ -24,9 +42,9 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
 2. **The pin mapping** — a tri-state output has to go on `uio`, the only Tiny Tapeout pins that
    can go high-impedance. That takes all eight, so the load data shares the same bus, as on a
    74-series bus counter, and an always-driven copy of the count goes on `uo`.
-3. **The tests** (`test/`) — seven CocoTB tests, all passing in CI: asynchronous reset,
-   synchronous load, counting, enable-hold, 255 → 0 wrap-around, the tri-state bus, and load
-   winning over count. To check the tests can actually catch bugs, they were also run against
+3. **The tests** (`test/`) — eight CocoTB tests, all passing in CI: asynchronous reset,
+   synchronous load, counting, enable-hold, 255 → 0 wrap-around, the tri-state bus, load
+   winning over count, and load being ignored while the bus is driven. To check the tests can actually catch bugs, they were also run against
    four deliberately broken counters (synchronous reset, count beating load, `uio_oe` stuck at
    `0xFF`, enable ignored); every one failed.
 4. **Lint** — `verilator --lint-only -Wall` is clean, apart from the file-name warning that
@@ -36,8 +54,7 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
    run went green. *Tip:* don't re-run a failed `gds` run — it uploads a second `github-pages`
    artifact and the deploy refuses. Start a new run from Actions → gds → Run workflow.
 
-**Write-up (PDF, 7 pages): [docs/counter_writeup.pdf](docs/counter_writeup.pdf).** Full design notes
-and a by-hand test sequence: [docs/info.md](docs/info.md).
+Full design notes and a by-hand test sequence: [docs/info.md](docs/info.md).
 
 ## The design at a glance
 
@@ -62,14 +79,16 @@ Only the `uio` pins on a Tiny Tapeout tile can go high-impedance, so the tri-sta
 live there — which uses all eight of them and leaves no pins for a separate data-input port.
 The bus is therefore bidirectional, exactly like a 74-series bus counter. **A load consequently
 requires `OE` to be low**, because the pads can only be inputs while the design is not driving
-them. `uo[7:0]` carries an always-driven copy of the count so it stays observable while the bus
+them; on GF180 the pad's input side is off while it drives, so the design ignores `LOAD`
+while `OE` is high. `uo[7:0]` carries an always-driven copy of the count so it stays observable while the bus
 is released. See [docs/info.md](docs/info.md) for the full reasoning and a test sequence.
 
 ## Testing
 
-The testbench is CocoTB, in `test/`. Seven separate tests cover asynchronous reset,
+The testbench is CocoTB, in `test/`. Eight separate tests cover asynchronous reset,
 synchronous load, counting from a loaded value, holding with the enable deasserted, 255 → 0
-wrap-around, the tri-state bus, and load priority over count.
+wrap-around, the tri-state bus, load priority over count, and `LOAD` being ignored while
+`OE` is high.
 
 ```sh
 cd test

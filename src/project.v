@@ -13,7 +13,8 @@
  *             oe = 1 -> uio_oe = 8'hFF, the bus drives Q[7:0]
  *             oe = 0 -> uio_oe = 8'h00, the bus is released (Hi-Z) and is
  *                       sampled as the parallel load data D[7:0]
- *   ui[0]     load   - synchronous parallel load, active high (beats count)
+ *   ui[0]     load   - synchronous parallel load, active high (beats count);
+ *                        ignored while oe = 1, when the bus is an output
  *   ui[1]     enable - count enable, active high
  *   ui[2]     oe     - tri-state output enable, active high
  *   ui[7:3]   unused, tie low
@@ -43,8 +44,12 @@ module tt_um_ece298a_counter (
 
   // Parallel load data arrives on the shared bidirectional bus. It is only
   // meaningful while oe is low, because that is the only time the pads are
-  // configured as inputs; a load therefore requires oe = 0.
+  // configured as inputs. While oe is high the GF180 pad has its input side
+  // disabled (the IO cell lists input + output enabled together as
+  // "disallowed"), so uio_in is undefined; a load is therefore ignored
+  // while the design is driving the bus.
   wire [7:0] load_data = uio_in;
+  wire       do_load   = load & ~oe;
 
   // ---------------------------------------------------------------------
   // The counter itself
@@ -53,15 +58,15 @@ module tt_um_ece298a_counter (
   // clears the instant rst_n falls, without waiting for a clock edge.
   // Everything else happens on the rising clock edge only.
   //
-  // Priority: reset > load > count > hold.
+  // Priority: reset > load (only when oe = 0) > count > hold.
   // ---------------------------------------------------------------------
   reg [7:0] count;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       count <= 8'h00;          // asynchronous clear
-    end else if (load) begin
-      count <= load_data;      // synchronous load, beats counting
+    end else if (do_load) begin
+      count <= load_data;      // synchronous load, beats counting; only with oe = 0
     end else if (enable) begin
       count <= count + 8'd1;   // count up, wraps 255 -> 0
     end

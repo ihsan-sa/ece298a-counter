@@ -20,7 +20,7 @@ The heart of the design is a single 8-bit register clocked on the rising edge of
 ```verilog
 always @(posedge clk or negedge rst_n) begin
   if (!rst_n)        count <= 8'h00;        // asynchronous clear
-  else if (load)     count <= load_data;    // synchronous load
+  else if (load & ~oe) count <= load_data; // synchronous load, bus released
   else if (enable)   count <= count + 8'd1; // count up
   // else hold
 end
@@ -31,7 +31,7 @@ The four behaviours have a strict priority:
 | priority | condition | effect |
 | --- | --- | --- |
 | 1 | `rst_n = 0` | count clears to `0x00` **immediately**, no clock edge required |
-| 2 | `LOAD = 1` | on the next rising edge the count takes the parallel data D[7:0] |
+| 2 | `LOAD = 1` and `OE = 0` | on the next rising edge the count takes the parallel data D[7:0] |
 | 3 | `ENABLE = 1` | on the next rising edge the count increments; 0xFF rolls over to 0x00 |
 | 4 | neither | the count holds its value |
 
@@ -64,7 +64,9 @@ that is the output when the part is driving and the load input when it is not.**
 
 **The consequence to be aware of: because the load data arrives on the same pins as the output
 bus, a load requires `OE` to be low.** If `OE` is high the tile is driving `uio`, nothing
-external can drive data into it, and a load would capture the counter's own output. Drop `OE`
+external can drive data into it, and on GF180 the pad's input side is switched off while it
+drives, so `uio_in` has no defined value. The design therefore ignores `LOAD` while `OE` is
+high: the count holds, or keeps counting if `ENABLE` is also high. Drop `OE`
 first, put D on the bus, then pulse `LOAD`.
 
 So that the count is never invisible, `uo[7:0]` carries an always-driven copy of Q. You can
@@ -97,12 +99,12 @@ synchronous behaviour much easier to see).
 7. **Tri-state output.** Set `ui = 0b110` (`ENABLE = 1`, `OE = 1`). `uio_oe` becomes `0xFF` and
    `uio[7:0]` now drives the same count you see on `uo[7:0]`. Clear `OE` (`ui = 0b010`) and
    the `uio` pins go high-impedance — an external pull-up or pull-down now wins the bus, while
-   `uo[7:0]` keeps showing the count. Note that you cannot load while `OE` is high.
+   `uo[7:0]` keeps showing the count. `LOAD` is ignored while `OE` is high.
 
-The CocoTB testbench in `test/` automates all of the above as seven separate tests:
+The CocoTB testbench in `test/` automates all of the above as eight separate tests:
 asynchronous reset, synchronous load, counting from a loaded value, hold with the enable
-deasserted, wrap-around, tri-state behaviour of `uio_oe`/`uio_out`, and load priority over
-count. Run it with `make -B` inside the `test` directory.
+deasserted, wrap-around, tri-state behaviour of `uio_oe`/`uio_out`, load priority over
+count, and `LOAD` being ignored while `OE` drives the bus. Run it with `make -B` inside the `test` directory.
 
 ## External hardware
 

@@ -317,3 +317,50 @@ async def test_load_beats_count(dut):
     await step(dut)
     assert q(dut) == 0, f"reset must hold the count at 0, got 0x{q(dut):02X}"
     dut.rst_n.value = 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Load is ignored while the bus is driven
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_load_ignored_while_driving(dut):
+    """With OE high the bus is an output, so LOAD must not capture uio_in.
+
+    On GF180 the pad's input side is off while it drives, so uio_in is
+    undefined on silicon. This testbench drives uio_in freely, which is exactly
+    why the design must not trust it while OE is high.
+    """
+    await start_clock(dut)
+    await reset(dut)
+
+    # Load a known value the legitimate way, with the bus released.
+    await FallingEdge(dut.clk)
+    dut.uio_in.value = 0x5A
+    dut.ui_in.value = ctrl(load=True, oe=False)
+    await step(dut)
+    assert q(dut) == 0x5A
+
+    # LOAD with OE high: whatever is on uio_in must be ignored.
+    await FallingEdge(dut.clk)
+    dut.uio_in.value = 0xA5
+    dut.ui_in.value = ctrl(load=True, oe=True)
+    for _ in range(3):
+        await step(dut)
+        assert q(dut) == 0x5A, (
+            f"load captured the bus while driving it: 0x{q(dut):02X}"
+        )
+        assert int(dut.uio_oe.value) == 0xFF, "bus should stay driven"
+
+    # LOAD and ENABLE with OE high: the load is ignored, so the count runs.
+    dut.ui_in.value = ctrl(load=True, enable=True, oe=True)
+    for i in range(1, 4):
+        await step(dut)
+        assert q(dut) == (0x5A + i) & 0xFF, (
+            f"ignored load should let the count run: 0x{q(dut):02X}"
+        )
+
+    # Drop OE and the same LOAD works again.
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = ctrl(load=True, oe=False)
+    await step(dut)
+    assert q(dut) == 0xA5, f"load with OE low failed: 0x{q(dut):02X}"
