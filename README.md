@@ -42,9 +42,9 @@ on a single Tiny Tapeout tile. ECE 298A (University of Waterloo), project 1 — 
 2. **The pin mapping** — a tri-state output has to go on `uio`, the only Tiny Tapeout pins that
    can go high-impedance. That takes all eight, so the load data shares the same bus, as on a
    74-series bus counter, and an always-driven copy of the count goes on `uo`.
-3. **The tests** (`test/`) — seven CocoTB tests, all passing in CI: asynchronous reset,
-   synchronous load, counting, enable-hold, 255 → 0 wrap-around, the tri-state bus, and load
-   winning over count. To check the tests can actually catch bugs, they were also run against
+3. **The tests** (`test/`) — eight CocoTB tests, all passing in CI: asynchronous reset,
+   synchronous load, counting, enable-hold, 255 → 0 wrap-around, the tri-state bus, load
+   winning over count, and load being ignored while the bus is driven. To check the tests can actually catch bugs, they were also run against
    four deliberately broken counters (synchronous reset, count beating load, `uio_oe` stuck at
    `0xFF`, enable ignored); every one failed.
 4. **Lint** — `verilator --lint-only -Wall` is clean, apart from the file-name warning that
@@ -79,14 +79,16 @@ Only the `uio` pins on a Tiny Tapeout tile can go high-impedance, so the tri-sta
 live there — which uses all eight of them and leaves no pins for a separate data-input port.
 The bus is therefore bidirectional, exactly like a 74-series bus counter. **A load consequently
 requires `OE` to be low**, because the pads can only be inputs while the design is not driving
-them. `uo[7:0]` carries an always-driven copy of the count so it stays observable while the bus
+them; on GF180 the pad's input side is off while it drives, so the design ignores `LOAD`
+while `OE` is high. `uo[7:0]` carries an always-driven copy of the count so it stays observable while the bus
 is released. See [docs/info.md](docs/info.md) for the full reasoning and a test sequence.
 
 ## Testing
 
-The testbench is CocoTB, in `test/`. Seven separate tests cover asynchronous reset,
+The testbench is CocoTB, in `test/`. Eight separate tests cover asynchronous reset,
 synchronous load, counting from a loaded value, holding with the enable deasserted, 255 → 0
-wrap-around, the tri-state bus, and load priority over count.
+wrap-around, the tri-state bus, load priority over count, and `LOAD` being ignored while
+`OE` is high.
 
 ```sh
 cd test
